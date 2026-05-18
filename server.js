@@ -8,36 +8,59 @@ app.use(cors());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" } // Allows your Cloudflare site to connect
+  cors: { origin: "*" } 
 });
 
-// The instantaneous RAM array (The OmeTV secret)
+// The instantaneous RAM array
 let waitingQueue = [];
+
+// 🧊 AURA ICEBREAKER MATRIX
+const icebreakers = [
+  "If you could have any superpower for 24 hours, what would it be?",
+  "What is the weirdest food combination you actually enjoy?",
+  "Would you rather live 100 years in the future or 100 years in the past?",
+  "What's your absolute go-to song when you get the aux cord?",
+  "If you won $10 million today, what is the first thing you're buying?",
+  "What is the most useless talent you possess?",
+  "Is a hotdog considered a sandwich? Defend your answer."
+];
 
 io.on('connection', (socket) => {
   console.log(`🔌 Node Connected: ${socket.id}`);
 
   socket.on('request_match', () => {
-    // 1. If someone is already waiting, pair them up instantly!
     if (waitingQueue.length > 0) {
       const partnerSocket = waitingQueue.shift(); // Pull the oldest person out of line
-
-      // Generate a unique, private Agora room
       const roomName = `room_${partnerSocket.id}_${socket.id}`;
 
-      // Instantly push the room name down the tunnel to BOTH users
-      io.to(partnerSocket.id).emit('match_found', roomName);
-      socket.emit('match_found', roomName);
+      // 1. Put BOTH users inside a private Socket.io Room
+      partnerSocket.join(roomName);
+      socket.join(roomName);
+      
+      // 2. Save the room name to their socket profile so they remember where they are
+      partnerSocket.currentRoom = roomName;
+      socket.currentRoom = roomName;
 
-      console.log(`🎯 Matched ${partnerSocket.id} with ${socket.id} -> ${roomName}`);
+      const randomQuestion = icebreakers[Math.floor(Math.random() * icebreakers.length)];
+
+      // 3. Broadcast to the Room
+      io.to(roomName).emit('match_found', { roomName, question: randomQuestion });
+      console.log(`🎯 Matched -> ${roomName} | Icebreaker: "${randomQuestion}"`);
     } else {
-      // 2. If the queue is empty, wait in line.
       waitingQueue.push(socket);
       console.log(`⏳ Node ${socket.id} entered the queue. Queue size: ${waitingQueue.length}`);
     }
   });
 
-  // 3. THE GHOST FIX: If a user closes the tab or skips, remove them from the queue instantly!
+  // 🔄 When either user clicks "Next Question", pick a new one and send it to BOTH
+  socket.on('cycle_icebreaker', () => {
+    if (socket.currentRoom) {
+      const newQuestion = icebreakers[Math.floor(Math.random() * icebreakers.length)];
+      io.to(socket.currentRoom).emit('icebreaker_updated', newQuestion);
+      console.log(`🔄 Icebreaker cycled in ${socket.currentRoom}`);
+    }
+  });
+
   socket.on('disconnect', () => {
     waitingQueue = waitingQueue.filter(s => s.id !== socket.id);
     console.log(`❌ Node Disconnected: ${socket.id}. Queue size: ${waitingQueue.length}`);
